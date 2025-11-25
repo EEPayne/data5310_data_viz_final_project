@@ -1,0 +1,27 @@
+# Ignore Python bytecode and cache
+__pycache__/
+*.py[cod]
+
+# Ignore Jupyter notebook checkpoints
+.ipynb_checkpoints/
+.jupyter/
+
+# virtual environment folders
+venv/
+env/
+*_venv/
+*_env/
+*.env
+
+# data files (large or sensitive)
+*.csv
+*.json
+*.geojson
+
+# Ignore logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Ignore IDE/project settings
+.vscode/
