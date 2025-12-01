@@ -28,11 +28,11 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     # validation
 
     # subset columns
-    if keep is None:
+    if keep_columns is None:
         if data_file_fmt == 'csv':
-            keep = []
+            keep_columns = []
         elif data_file_fmt == 'json':
-            keep = []
+            keep_columns = []
 
     # read in data
     if data_file_fmt == 'csv':
