@@ -64,7 +64,8 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     data = data[keep_columns]
 
     # clean estimated project costs
-    data['EstProjectCost'] = data['EstProjectCost'].apply(lambda s: ''.join(s.split(',')) if isinstance(s, str) else s)
+    data['EstProjectCost'] = data['EstProjectCost'].str.replace(',', '', regex=False).apply(pd.to_numeric, errors='coerce')
+
 
     # clean origin city name
 
