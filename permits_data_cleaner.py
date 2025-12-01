@@ -1,7 +1,7 @@
 import pandas as pd
-import geopandas as pd
+import geopandas as gpd
 
-def clean_permits_data(data_path, data_file_fmt = 'json', save = False, save_fmt = 'pickle'):
+def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle'):
     '''
     Hard coded cleaning and preprocessing operations for Seattle Building Permits data.
     
@@ -10,6 +10,9 @@ def clean_permits_data(data_path, data_file_fmt = 'json', save = False, save_fmt
             The location of the building permits data
         data_file_fmt: string literal "json" | "csv"
             The format of the data input file
+        keep_columns: list | None
+            If a list of column names is given, that subset will be used instead of the default defined in the function body.
+            The default is designed to work with the csv download format of the data.
         save: bool
             If true, a copy of the preprocessed data will be saved at the chosen location in the chosen format.
         save_fmt: string literal "csv" | "pickle" | "json"
@@ -25,6 +28,19 @@ def clean_permits_data(data_path, data_file_fmt = 'json', save = False, save_fmt
     # validation
 
     # subset columns
+    if keep is None:
+        if data_file_fmt == 'csv':
+            keep = []
+        elif data_file_fmt == 'json':
+            keep = []
+
+    # read in data
+    if data_file_fmt == 'csv':
+        data = pd.read_csv(data_path)
+    elif data_file_fmt == 'json':
+        data = pd.read_json(data_path)
+    else:
+        raise ValueError(f'Expected one of "csv" or "json" for data_file_fmt, got {repr(data_file_fmt)}')
 
     # clean estimated project costs
 
@@ -35,7 +51,7 @@ def clean_permits_data(data_path, data_file_fmt = 'json', save = False, save_fmt
     # create "topic" column
 
     # save if desired
-
+    return data
 
 
 
