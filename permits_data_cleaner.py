@@ -1,7 +1,6 @@
 import pandas as pd
-import geopandas as gpd
 
-def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle'):
+def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle', save_path = None):
     '''
     Hard coded cleaning and preprocessing operations for Seattle Building Permits data.
     
@@ -97,8 +96,14 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     ]
 
     DAMAGE_PHRASES = [
-
+        'seismic damage',
+        'earthquake damage'
     ]
+
+    def normalize_desc(description):
+        if not isinstance(description, str):
+            return pd.NA
+        return ' '.join(description.split()).lower()
 
     def categorize_topic(desc):
         if not isinstance(desc, str):
@@ -109,9 +114,18 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
             return 'damage'
         return pd.NA
     
-    data['topic'] = data['Description'].apply(categorize_topic)
+    data['topic'] = data['Description'].apply(normalize_desc).apply(categorize_topic)
 
     # save if desired
+    if save:
+        match save_fmt:
+            case 'pickle':
+                data.to_pickle(save_path)
+            case 'csv':
+                data.to_csv(save_path)
+            case 'json':
+                data.to_json(save_path)
+
     return data
 
 
