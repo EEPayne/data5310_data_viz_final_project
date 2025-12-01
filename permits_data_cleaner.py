@@ -66,13 +66,50 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     # clean estimated project costs
     data["EstProjectCost"] = data["EstProjectCost"].astype(str).str.replace(",", "", regex=False).apply(pd.to_numeric, errors="coerce")
 
-
-
     # clean origin city name
+    data['OriginalCity'] = data['OriginalCity'].str.capitalize()
 
     # remove rows with missing values in non-date columns
+    nan_remove_cols = [
+        'PermitNum',
+        'Latitude',
+        'Longitude',
+    ]
+    data.dropna(subset=nan_remove_cols, inplace=True)
 
     # create "topic" column
+    RETROFIT_PHRASES = [
+        'seismic retrofit',
+        'seismic upgrade',
+        'seismic proof',
+        'seismic home retrofit',
+        'seismic home upgrade',
+        'seismic home proof',
+        'seismically retrofit',
+        'seismically upgrade',
+        'seismically proof',
+        'earthquake retrofit',
+        'earthquake upgrade',
+        'earthquake proof',
+        'earthquake home retrofit',
+        'earthquake home upgrade',
+        'earthquake home proof'
+    ]
+
+    DAMAGE_PHRASES = [
+
+    ]
+
+    def categorize_topic(desc):
+        if not isinstance(desc, str):
+            return pd.NA
+        if any([phrase in desc for phrase in RETROFIT_PHRASES]):
+            return 'retrofit'
+        if any([phrase in desc for phrase in DAMAGE_PHRASES]):
+            return 'damage'
+        return pd.NA
+    
+    data['topic'] = data['Description'].apply(categorize_topic)
 
     # save if desired
     return data
