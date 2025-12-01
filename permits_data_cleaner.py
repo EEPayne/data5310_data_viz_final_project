@@ -27,13 +27,6 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     '''
     # validation
 
-    # subset columns
-    if keep_columns is None:
-        if data_file_fmt == 'csv':
-            keep_columns = []
-        elif data_file_fmt == 'json':
-            keep_columns = []
-
     # read in data
     if data_file_fmt == 'csv':
         data = pd.read_csv(data_path)
@@ -42,7 +35,36 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     else:
         raise ValueError(f'Expected one of "csv" or "json" for data_file_fmt, got {repr(data_file_fmt)}')
 
+    # subset columns
+    if keep_columns is None:
+        if data_file_fmt in ['csv', 'json']:
+            keep_columns = ['PermitNum',
+                            'PermitClass',
+                            'PermitClassMapped',
+                            'PermitTypeMapped',
+                            'PermitTypeDesc',
+                            'Description',
+                            'EstProjectCost',
+                            'AppliedDate',
+                            'ReadyToIssueDate',
+                            'IssuedDate',
+                            'ExpiresDate',
+                            'CompletedDate',
+                            'StatusCurrent',
+                            'OriginalAddress1',
+                            'OriginalCity',
+                            'OriginalState',
+                            'OriginalZip',
+                            'Latitude',
+                            'Longitude',
+                            'TotalDaysPlanReview',
+                            'NumberReviewCycles',
+                            'Zoning']
+            
+    data = data[keep_columns]
+
     # clean estimated project costs
+    data['EstProjectCost'] = data['EstProjectCost'].str.split(',').apply(lambda x: ''.join(x))
 
     # clean origin city name
 
