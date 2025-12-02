@@ -1,6 +1,10 @@
+import numpy as np
 import pandas as pd
+import geopandas as gpd
+from copy import deepcopy
 
-def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle', save_path = None):
+def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle', save_path = None,
+                       liquefaction_areas_path = None, slide_areas_path = None, cras_path = None):
     '''
     Hard coded cleaning and preprocessing operations for Seattle Building Permits data.
     
@@ -18,10 +22,16 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
             The file format to save the preprocessed data
         save_path: sting path or python path object
             The location in which to save the preprocessed data if desired.
+        liquefaction_areas_path: string or path object
+            liquefaction prone areas from the City of Seattle
+        slide_areas_path: string or path object
+            potential slide areas from the City of Seattle
+        cras_path: string or path object
+            Community Reporting Areas in the City of Seattle
     
     Returns
         preprocessed: Pandas.DataFrame
-            Column names are []. A subset of the original data with selected features. A column "topic"  with values "retrofit", "damage",
+            Column names are ["topic", "liquefaction_prone", "slide_prone", "cra_no", "cra_name"]. A subset of the original data with selected features. A column "topic"  with values "retrofit", "damage",
             and Pandas.NA is added to designate whether an entry is confirmed to relate to a seismic retrofit or earthquake damage
     '''
     # validation
@@ -116,6 +126,15 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     
     data['topic'] = data['Description'].apply(normalize_desc).apply(categorize_topic)
 
+    if not (liquefaction_areas_path is None or slide_areas_path is None or cras_path is None):
+        print('Adding columns for slide risk, liquefaction risk, and community reporting areas.')
+        liquefaction_areas = gpd.read_file(liquefaction_areas_path, ),
+        slide_areas = gpd.read_file(slide_areas_path)
+        cras = gpd.read_file(cras_path)
+        data = _add_eca_status_columns(data, liquefaction_areas, slide_areas, cras)
+    else:
+        print('Did not add columns for slide risk, liquefaction risk, and community reporting areas.')
+
     # save if desired
     if save:
         match save_fmt:
@@ -128,7 +147,56 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
 
     return data
 
+def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.GeoDataFrame, slide_areas: gpd.GeoDataFrame, cras: gpd.GeoDataFrame):
+    '''
+    Returns new point_data with an added boolean column representing whether each point is inside of any of the eca area shapes.
+    values will be Pandas.NA if no shapes are given
+    
+    Parameters
+        point_data: Pandas.DataFrame 
+            The location point data
+        liquefaction_areas: Geopandas.GeoDataFrame
+            The ECA area shapes for liquefaction prone areas
+        slide_areas: Geopandas.GeoDataFrame
+            The ECA area shapes for slide prone areas (potential slide)
+        cras: Geopandas.GeoDataFrame
+            The Seattle Community Reporting Areas
+    
+    Returns
+        new_data: Pandas.DataFrame
+            Modified verion of the original data with the added column
+    '''
+    if (not isinstance(liquefaction_areas, gpd.GeoDataFrame) or not liquefaction_areas) or (not isinstance(slide_areas, gpd.GeoDataFrame) or not slide_areas):
+        new_point_data = deepcopy(point_data)
+        new_point_data['slide_prone'] = pd.Series(np.full(shape=(point_data.shape[0],), fill_value=pd.NA, dtype=object))
+        new_point_data['liquefaction_prone'] = pd.Series(np.full(shape=(point_data.shape[0],), fill_value=pd.NA, dtype=object))
+        return new_point_data
+    
+    # convert points to geodataframe
+    gdf_points = gpd.GeoDataFrame(
+        point_data,
+        geometry=gpd.points_from_xy(point_data['Longitude'], point_data['Latitude']),
+        crs='EPSG:4326'   # WGS84 lat/lon
+    )
 
+    # join liquefaction areas
+    print(liquefaction_areas.columns)
+    join1 = gpd.sjoin(gdf_points, liquefaction_areas, how="left", predicate="within", )
+    gdf_points['liquefaction_prone'] = ~join1.index_right.isna()
+
+    # join slide areas
+    print(slide_areas.columns)
+    join2 = gpd.sjoin(gdf_points, slide_areas, how="left", predicate="within")
+    gdf_points['slide_prone'] = ~join2.index_right.isna()
+
+    # join community reporting areas
+    print(cras.columns)
+    join3 = gpd.sjoin(gdf_points, cras[['CRA_NO', 'GEN_ALIAS', 'geometry']], how="left", predicate="within")
+    gdf_points['is_in_cra'] = ~join3.index_right.isna()
+    gdf_points['cra_no'] = join3['CRA_NO']
+    gdf_points['cra_name'] = join3['GEN_ALIAS']
+
+    return pd.DataFrame(gdf_points.drop(columns='geometry'))
 
 # testing
 def main():
