@@ -76,7 +76,11 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     data["EstProjectCost"] = data["EstProjectCost"].astype(str).str.replace(",", "", regex=False).apply(pd.to_numeric, errors="coerce")
 
     # clean origin city name
-    data['OriginalCity'] = data['OriginalCity'].str.capitalize()
+    known_seattle_mistakes = ['seatlle']
+    data['OriginalCity'] = data['OriginalCity'].str.lower()
+    for mistake in known_seattle_mistakes:
+        data['OriginalCity'].replace(to_replace=mistake, value='seattle', inplace=True)
+    data['OriginalCity'] = data['OriginalCity'].str.title()
 
     # remove rows with missing values in non-date columns
     nan_remove_cols = [
