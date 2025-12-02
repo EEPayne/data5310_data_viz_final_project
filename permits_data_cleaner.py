@@ -128,7 +128,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
 
     if not (liquefaction_areas_path is None or slide_areas_path is None or cras_path is None):
         print('Adding columns for slide risk, liquefaction risk, and community reporting areas.')
-        liquefaction_areas = gpd.read_file(liquefaction_areas_path, ),
+        liquefaction_areas = gpd.read_file(liquefaction_areas_path)
         slide_areas = gpd.read_file(slide_areas_path)
         cras = gpd.read_file(cras_path)
         data = _add_eca_status_columns(data, liquefaction_areas, slide_areas, cras)
@@ -166,12 +166,6 @@ def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.Ge
         new_data: Pandas.DataFrame
             Modified verion of the original data with the added column
     '''
-    if (not isinstance(liquefaction_areas, gpd.GeoDataFrame) or not liquefaction_areas) or (not isinstance(slide_areas, gpd.GeoDataFrame) or not slide_areas):
-        new_point_data = deepcopy(point_data)
-        new_point_data['slide_prone'] = pd.Series(np.full(shape=(point_data.shape[0],), fill_value=pd.NA, dtype=object))
-        new_point_data['liquefaction_prone'] = pd.Series(np.full(shape=(point_data.shape[0],), fill_value=pd.NA, dtype=object))
-        return new_point_data
-    
     # convert points to geodataframe
     gdf_points = gpd.GeoDataFrame(
         point_data,
