@@ -2,10 +2,15 @@ import os
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from permits_data_cleaner import clean_permits_data
 
-def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_path, slide_areas_path, urm_path):
+def compile_cra_stats(seattle_census_data_path,
+                      cras_path, liquefaction_areas_path,
+                      slide_areas_path, urm_path,
+                      permits_path, permits_file_fmt = 'csv'):
     '''
-    Given the most recent (2020) compiled census stats on population and housing in seattle, compile stats of interest (total housing, occupied housing, and population)
+    Given the most recent (2020) compiled census stats on population and housing in seattle, compile stats of interest
+    (total housing, occupied housing, population, etc)
     to the level of community reporting area and return as a Pandas.DataFrame
     
     seattle_census_data_path: string or path object
@@ -18,6 +23,10 @@ def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_pa
         Path to Potential Slide Areas Data
     urm_path: string or path object
         Path to Unreinforced Masonry (URM) Buildings dataset
+    permits_path: string or path object
+        Path to the Seattle Building Permits Data to pass to permits_data_cleaner.clean_permits_data
+    permits_file_fmt: string literal 'csv' | 'json'
+        The format of the building permits data file to pass to permits_data_cleaner.clean_permits_data
     '''
 
     columns_to_keep = [
@@ -30,7 +39,7 @@ def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_pa
         'HU2024',                  # 2024 housing unit count
         'OHU2024',                 # 2024 occupied housing unit count
         'HU2025',                  # 2025 housing unit count
-        'OHU2025'                 # 2025 occupied housing unit count
+        'OHU2025'                  # 2025 occupied housing unit count
     ]
 
     agg_dict = {
@@ -63,10 +72,16 @@ def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_pa
     counts = urms.groupby("index_right").size()
     data['URM_COUNT'] = data.index.map(counts).fillna(0).astype(int)
 
+    # add permit counts
+    permits = clean_permits_data(permits_path, permits_file_fmt, liquefaction_areas_path=liquefaction_areas_path,
+                                 slide_areas_path=slide_areas_path, cras_path=cras_path)
+    data = _add_cra_permit_counts(data, permits)
+
     return data
 
 def _find_eca_cra_overlaps(cras, ecas, prefix = 'eca_overlap'):
     '''
+    Helper for compile_cra_stats
     For each Community Reporting Area (CRA), calculates the total overlapping area with all Environmentally Critical Areas (ECA)
     as a percentage of the area of the CRA. ECAs may include liquefaction prone areas, potential slide areas, or other areas at risk in seismic events.
     *Note: EPSG:4326 represents lat/lon coordinates, and EPSG:26910 is Zone 10 of the UTM projection, in which seattle is located. UTM is good for area
@@ -104,3 +119,29 @@ def _find_eca_cra_overlaps(cras, ecas, prefix = 'eca_overlap'):
     # revert to original crs
     return intersected_cras.to_crs(original_crs)
     
+
+def _add_cra_permit_counts(cras, permits):
+    '''
+    Helper for compile_cra_stats
+    Counts the total number of permits and the number of permits mentioning retrofits per CRA
+    
+    Parameters
+        cras: GeoDataFrame
+            Community Reporting Areas
+        permits: GeoDataFrame
+            Permits data processed with permits_data_cleaner.clean_permits_data
+    
+    Returns
+        cras: GeoDataFrame
+            copy of the original cras data with columns added for the total number of permits and the number of permits mentioning seismic retrofits.
+            New columns are named "BLDG_PERMIT_COUNT" and "RETROFIT_PERMIT_COUNT".
+    '''
+    permits_by_cra = permits.groupby(['CRA_NO']).size().reset_index(name='BLDG_PERMIT_COUNT')
+    retrofits_by_cra = permits[permits.topic == 'retrofit'].groupby(['CRA_NO']).size().reset_index(name='RETROFIT_PERMIT_COUNT')
+
+    new_cras = cras.merge(permits_by_cra, how='left', on='CRA_NO').merge(retrofits_by_cra, how='left', on='CRA_NO')
+
+    # fill na with 0
+    new_cras.loc[:, ['BLDG_PERMIT_COUNT', 'RETROFIT_PERMIT_COUNT']] = new_cras[['BLDG_PERMIT_COUNT', 'RETROFIT_PERMIT_COUNT']].fillna(0).apply(lambda s: s.astype(int))
+    
+    return new_cras
