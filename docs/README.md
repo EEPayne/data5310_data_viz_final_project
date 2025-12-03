@@ -2,6 +2,8 @@
 
 ### Data Sources:
 
+To download and view the data, visit the provided links and navigate to the main data page, then use the download button to download a geojson, json, or csv file.
+
 1. [Seattle Unreinforced Masonry Buildings](https://data-seattlecitygis.opendata.arcgis.com/datasets/SeattleCityGIS::unreinforced-masonry-buildings-urm/about)
 2. [Seattle Building Permits](https://data.seattle.gov/Built-Environment/Building-Permits/76t5-zqzr/about_data)
 3. [ECA Potential Slide Areas](https://data-seattlecitygis.opendata.arcgis.com/datasets/SeattleCityGIS::eca-potential-slide-areas/about)
