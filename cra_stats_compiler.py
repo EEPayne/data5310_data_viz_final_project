@@ -3,13 +3,21 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 
-def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_path, slide_areas_path):
+def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_path, slide_areas_path, urm_path):
     '''
     Given the most recent (2020) compiled census stats on population and housing in seattle, compile stats of interest (total housing, occupied housing, and population)
     to the level of community reporting area and return as a Pandas.DataFrame
     
-    Parameters
-        seattle_census_data_path: Description
+    seattle_census_data_path: string or path object
+        path to Annual Population and Housing Estimates for 2020 Census Blocks in Seattle data
+    cras_path: string or path object
+        path to Community Reporting Areas data
+    liquefaction_areas_path: string or path object
+        path to Liquefaction Prone Areas data
+    slide_areas_path: string or path object
+        Path to Potential Slide Areas Data
+    urm_path: string or path object
+        Path to Unreinforced Masonry (URM) Buildings dataset
     '''
 
     columns_to_keep = [
@@ -44,8 +52,16 @@ def compile_cra_stats(seattle_census_data_path, cras_path, liquefaction_areas_pa
     # keep only land portions of community reporting areas
     cras_land = cras_land[cras_land.WATER == 0].drop(columns=['WATER'])
     data = cras_land.merge(data, on='CRA_NO')
+
+    # calculate eca overlap
     data = _find_eca_cra_overlaps(data, gpd.read_file(liquefaction_areas_path), 'liquefaction')
     data = _find_eca_cra_overlaps(data, gpd.read_file(slide_areas_path), 'slide')
+
+    # count URM buildings in each CRA
+    urms = gpd.read_file(urm_path).to_crs(data.crs)
+    urms = gpd.sjoin(urms, data, how='left', predicate='within')
+    counts = urms.groupby("index_right").size()
+    data['URM_COUNT'] = data.index.map(counts).fillna(0).astype(int)
 
     return data
 
