@@ -153,6 +153,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
 
 def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.GeoDataFrame, slide_areas: gpd.GeoDataFrame, cras: gpd.GeoDataFrame):
     '''
+    Helper for clean_permits_data.
     Returns new point_data with an added boolean column representing whether each point is inside of any of the eca area shapes.
     values will be Pandas.NA if no shapes are given
     
@@ -191,8 +192,8 @@ def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.Ge
     print(cras.columns)
     join3 = gpd.sjoin(gdf_points, cras[['CRA_NO', 'GEN_ALIAS', 'geometry']], how="left", predicate="within")
     gdf_points['is_in_cra'] = ~join3.index_right.isna()
-    gdf_points['cra_no'] = join3['CRA_NO']
-    gdf_points['cra_name'] = join3['GEN_ALIAS']
+    gdf_points['CRA_NO'] = join3['CRA_NO']
+    gdf_points['CRA_NAME'] = join3['GEN_ALIAS']
 
     return pd.DataFrame(gdf_points.drop(columns='geometry'))
 
