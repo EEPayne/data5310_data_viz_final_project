@@ -5,13 +5,37 @@ import geopandas as gpd
 
 from copy import deepcopy
 
+
+def _ensure_crs(gdf: gpd.GeoDataFrame, target_crs: str):
+    """Ensure a GeoDataFrame has the specified CRS. If gdf.crs is None, set it
+    to target_crs; otherwise reproject to target_crs if different.
+    """
+    if gdf is None:
+        return gdf
+    # If gdf has no crs, assume it's already in target_crs coordinates and set it.
+    if getattr(gdf, 'crs', None) is None:
+        try:
+            return gdf.set_crs(target_crs)
+        except Exception:
+            return gdf
+    # If already the same, return as-is
+    try:
+        if gdf.crs == target_crs or (hasattr(gdf.crs, 'to_string') and gdf.crs.to_string() == target_crs):
+            return gdf
+    except Exception:
+        pass
+    try:
+        return gdf.to_crs(target_crs)
+    except Exception:
+        return gdf
+
 def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle', save_path = None,
                        liquefaction_areas_path = None, slide_areas_path = None, cras_path = None):
     # validation
 
     # read in data
     if data_file_fmt == 'csv':
-        data = pd.read_csv(data_path)
+        data = pd.read_csv(data_path, low_memory=False)
     elif data_file_fmt == 'json':
         data = pd.read_json(data_path)
     else:
@@ -52,7 +76,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     known_seattle_mistakes = ['seatlle']
     data['OriginalCity'] = data['OriginalCity'].str.lower()
     for mistake in known_seattle_mistakes:
-        data['OriginalCity'].replace(to_replace=mistake, value='seattle', inplace=True)
+        data['OriginalCity'] = data['OriginalCity'].replace(to_replace=mistake, value='seattle')
     data['OriginalCity'] = data['OriginalCity'].str.title()
 
     # remove rows with missing values in non-date columns
@@ -132,9 +156,14 @@ def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.Ge
         geometry=gpd.points_from_xy(point_data['Longitude'], point_data['Latitude']),
         crs='EPSG:4326'   # WGS84 lat/lon
     )
+    # Ensure CRSs match before spatial operations: use EPSG:4326 for point-in-polygon joins
+    gdf_points = _ensure_crs(gdf_points, 'EPSG:4326')
+    liquefaction_areas = _ensure_crs(liquefaction_areas, gdf_points.crs)
+    slide_areas = _ensure_crs(slide_areas, gdf_points.crs)
+    cras = _ensure_crs(cras, gdf_points.crs)
 
     # join liquefaction areas
-    join1 = gpd.sjoin(gdf_points, liquefaction_areas, how="left", predicate="within", )
+    join1 = gpd.sjoin(gdf_points, liquefaction_areas, how="left", predicate="within")
     gdf_points['liquefaction_prone'] = ~join1.index_right.isna()
 
     # join slide areas
@@ -157,11 +186,14 @@ def clean_urm_data(urm_data_path, cras_path):
         'OVERLAY_DISTRICT',
         'LANDMARK_STATUS'
     ]
-    urms = gpd.read_file(urm_data_path)
     cras = gpd.read_file(cras_path)
-    cras = cras[cras.WATER == 0][['CRA_NO', 'GEN_ALIAS']]
-    urms = urms.merge(cras, how='left', left_on='NEIGHBORHOOD', right_on='GEN_ALIAS')
-    urms = urms.drop(columns=columns_to_drop+['GEN_ALIAS']).rename(columns={'NEIGHBORHOOD':'CRA_NAME'})
+    cras = _ensure_crs(cras, 'EPSG:4326')
+    cras_land = cras[cras.WATER == 0][['CRA_NO', 'GEN_ALIAS']] if 'WATER' in cras.columns else cras[['CRA_NO', 'GEN_ALIAS']]
+
+    urms = gpd.read_file(urm_data_path)
+    urms = _ensure_crs(urms, cras_land.crs)
+    urms = urms.merge(cras_land, how='left', left_on='NEIGHBORHOOD', right_on='GEN_ALIAS')
+    urms = urms.drop(columns=columns_to_drop + ['GEN_ALIAS'], errors='ignore').rename(columns={'NEIGHBORHOOD': 'CRA_NAME'})
     urms['LATITUDE'] = urms.geometry.y
     urms['LONGITUDE'] = urms.geometry.x
     return urms
