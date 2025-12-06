@@ -181,6 +181,11 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     data['X'] = data['Longitude']
     data['Y'] = data['Latitude']
 
+    # add aliases for parts of AppliedDate
+    data.loc[:, ["year"]] = data["AppliedDate"].dt.year
+    data.loc[:, ["month"]] = data["AppliedDate"].dt.month
+    data.loc[:, ["year_month"]] = data["AppliedDate"].dt.to_period("M").dt.to_timestamp()
+
     return data
 
 
