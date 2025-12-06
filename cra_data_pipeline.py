@@ -177,6 +177,10 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
             case 'json':
                 data.to_json(save_path)
 
+    # aliases for lat lon for convenience
+    data['X'] = data['Longitude']
+    data['Y'] = data['Latitude']
+
     return data
 
 
@@ -251,14 +255,27 @@ def clean_urm_data(urm_data_path, cras_path):
     ]
     cras = gpd.read_file(cras_path)
     cras = _ensure_crs(cras, 'EPSG:4326')
-    cras_land = cras[cras.WATER == 0][['CRA_NO', 'GEN_ALIAS']] if 'WATER' in cras.columns else cras[['CRA_NO', 'GEN_ALIAS']]
+    cras_land = cras[cras.WATER == 0][['CRA_NO', 'GEN_ALIAS', 'geometry']] if 'WATER' in cras.columns else cras[['CRA_NO', 'GEN_ALIAS', 'geometry']]
+    cras_land = cras_land.rename_geometry('geometry_cra')
 
     urms = gpd.read_file(urm_data_path)
+    try:
+        print(urms.crs)
+    except AttributeError as e:
+        print('urms is not a geodataframe or is missing crs')
+        print(type(urms).__name__)
+    try:
+        print(cras_land.crs)
+    except AttributeError as e:
+        print('cras_land is not a geodataframe or is missing crs')
+        print(type(cras_land).__name__)
     urms = _ensure_crs(urms, cras_land.crs)
     urms = urms.merge(cras_land, how='left', left_on='NEIGHBORHOOD', right_on='GEN_ALIAS')
     urms = urms.drop(columns=columns_to_drop + ['GEN_ALIAS'], errors='ignore').rename(columns={'NEIGHBORHOOD': 'CRA_NAME'})
     urms['LATITUDE'] = urms.geometry.y
     urms['LONGITUDE'] = urms.geometry.x
+    urms['X'] = urms.geometry.x
+    urms['Y'] = urms.geometry.y
     return urms
 
 
