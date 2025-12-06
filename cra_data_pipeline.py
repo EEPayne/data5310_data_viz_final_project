@@ -7,9 +7,10 @@ from copy import deepcopy
 
 
 def _ensure_crs(gdf: gpd.GeoDataFrame, target_crs: str):
-    """Ensure a GeoDataFrame has the specified CRS. If gdf.crs is None, set it
+    '''
+    Ensure a GeoDataFrame has the specified CRS. If gdf.crs is None, set it
     to target_crs; otherwise reproject to target_crs if different.
-    """
+    '''
     if gdf is None:
         return gdf
     # If gdf has no crs, assume it's already in target_crs coordinates and set it.
@@ -31,7 +32,23 @@ def _ensure_crs(gdf: gpd.GeoDataFrame, target_crs: str):
 
 def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, save = False, save_fmt = 'pickle', save_path = None,
                        liquefaction_areas_path = None, slide_areas_path = None, cras_path = None):
-    # validation
+    '''
+    Processing for building permits data
+    
+    Parameters
+        data_path: Path to building permits data file (csv or json)
+        data_file_fmt: The format of the building permit data file ('csv' | 'json')
+        keep_columns: Columns to keep if different from default
+        save: If true, save the processed data to disk
+        save_fmt: The format in which to save the data file ('pickle' | 'csv' | 'json')
+        save_path: The location to save the processed data file
+        liquefaction_areas_path: Path to ECA liquefaction prone areas geojson
+        slide_areas_path: Path to ECA potential slide areas geojson
+        cras_path: path to Community Reporting Areas geojson
+
+    returns
+        A processed copy of the data at data_path
+    '''
 
     # read in data
     if data_file_fmt == 'csv':
@@ -72,6 +89,18 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     # clean estimated project costs
     data["EstProjectCost"] = data["EstProjectCost"].astype(str).str.replace(",", "", regex=False).apply(pd.to_numeric, errors="coerce")
 
+    # parse key dates and compute completion time (in days) where possible
+    for col in ["AppliedDate", "IssuedDate", "ExpiresDate", "CompletedDate"]:
+        if col in data.columns:
+            data[col] = pd.to_datetime(data[col], errors="coerce")
+
+    # CompletionTime: number of days between IssuedDate and CompletedDate (float days)
+    if "IssuedDate" in data.columns and "CompletedDate" in data.columns:
+        data["CompletionTime"] = (data["CompletedDate"] - data["IssuedDate"]).dt.total_seconds() / 86400.0
+    else:
+        # Ensure column exists even if dates not present
+        data["CompletionTime"] = pd.NA
+
     # clean origin city name
     known_seattle_mistakes = ['seatlle']
     data['OriginalCity'] = data['OriginalCity'].str.lower()
@@ -111,6 +140,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
         'earthquake damage'
     ]
 
+    # find descriptions mentioning retrofit phrases or earthquake damage and create a new topic field
     def normalize_desc(description):
         if not isinstance(description, str):
             return pd.NA
@@ -127,6 +157,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     
     data['topic'] = data['Description'].apply(normalize_desc).apply(categorize_topic)
 
+    # categorize membership in ECAs and CRAs
     if not (liquefaction_areas_path is None or slide_areas_path is None or cras_path is None):
         print('Adding columns for slide risk, liquefaction risk, and community reporting areas.')
         liquefaction_areas = gpd.read_file(liquefaction_areas_path)
@@ -150,6 +181,24 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
 
 
 def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.GeoDataFrame, slide_areas: gpd.GeoDataFrame, cras: gpd.GeoDataFrame):
+    '''
+    For each point in the point_data, compute which ECAs and CRAs the point resides in. New boolean fields ['liquefaction_prone', 'slide_prone', 'is_in_cra']
+    and nominal fields ['CRA_NO', 'CRA_NAME'] are added to the point data.
+    
+    Parameters
+        point_data: DataFrame or GeoDataFrame
+            Spatial points to assign to ECAs
+        liquefaction_areas: GeoDataFrame
+            Liquefaction Prone Areas in Seattle
+        slide_areas: GeoDataFrame
+            Potential SLide Areas in Seattle
+        cras: GeoDataFrame
+            Community Reporting Areas
+    
+    Returns
+        A DataFrame copy of point_data with the new fields appended.
+
+    '''
     # convert points to geodataframe
     gdf_points = gpd.GeoDataFrame(
         point_data,
@@ -180,6 +229,20 @@ def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.Ge
 
 
 def clean_urm_data(urm_data_path, cras_path):
+    '''
+    Process URM data.
+    1. Drop columns ['COMPLIANCE_METHOD', 'COUNCIL_DISTRICT', 'OVERLAY_DISTRICT', 'LANDMARK_STATUS']
+    2. Drop water portions of CRAs
+    3. Merge with land CRA shapes
+    4. Creat LAt/Lon fields from original point geometry
+    
+    Parameters
+        urm_data_path: Path to Unreinforced Masonry Buildings geojson
+        cras_path: Path to Community Reporting Area geojson
+    
+    Returns
+        GeoDataFrame with the merged and processed fields.
+    '''
     columns_to_drop = [
         'COMPLIANCE_METHOD',
         'COUNCIL_DISTRICT',
@@ -198,21 +261,7 @@ def clean_urm_data(urm_data_path, cras_path):
     urms['LONGITUDE'] = urms.geometry.x
     return urms
 
-# --- End merged from urm_cleaner.py ---
 
-
-"""
-Wrapper module that centralizes CRA-level compilation and exposes cleaning helpers.
-
-This file re-exports the cleaning helpers and provides `compile_cra_stats`, which
-was previously in `cra_stats_compiler.py`. It imports the cleaning helpers from
-the existing `permits_data_cleaner` and `urm_cleaner` modules so callers can use
-one import point (e.g., `from cra_data_pipeline import compile_cra_stats`).
-
-The implementation of `compile_cra_stats` here is copied and lightly adapted from
-the project's existing `cra_stats_compiler.py` to ensure a single, sensible module
-name for downstream notebooks and scripts.
-"""
 
 
 def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BLOCK20_ESTIMATES_SEATTLE_-7113746441103743061.geojson'),
@@ -222,10 +271,26 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
                       urm_path=os.path.join('data', 'Unreinforced_Masonry_Buildings_(URM).geojson'),
                       permits_path=os.path.join('data', 'Building_Permits_20251204.csv'),
                       permits_file_fmt = 'csv'):
-    # The body is intentionally identical to the project's existing compiler to
-    # maintain behavior while providing a clearer module name for imports.
+    '''
+    Compile Statistics and the level of Community Reporting Areas (CRA) from various sources.
+
+    Parameters    
+        seattle_census_data_path: Path to census block estimate data for Seattle (geojson)
+        cras_path: Path to CRA data geojson
+        liquefaction_areas_path: Path to ECA liquefaction prone areas geojson
+        slide_areas_path: Path to ECA potential slide areas geojson
+        urm_path: Path to Unreinforced Masonry Buildings (URM) geojson
+        permits_path: Path to Seattle Building permits data (likely a csv)
+        permits_file_fmt: The formate of the building permits file ('csv' | 'json')
+
+    Returns:
+        data: a GeoDataFrame with CRA level statistics and polygons merged from various sources.
+    '''
+
+
     census_gdf = gpd.read_file(seattle_census_data_path)
 
+    # autoselect lates population data
     pop_cols = [c for c in census_gdf.columns if str(c).upper().startswith('POP20')]
     if len(pop_cols) > 0:
         pop_field = sorted(pop_cols)[-1]
@@ -237,6 +302,7 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
         else:
             pop_field = None
 
+    # fields to keep from census block data
     preserve_fields = [f for f in ['CPOP_FROM_20', 'PCPOP_FROM_20'] if f in census_gdf.columns]
 
     agg_dict = {field: 'sum' for field in preserve_fields}
@@ -251,19 +317,23 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
 
     data = census_gdf.groupby('CRA_NO').agg(agg_dict).reset_index()
 
+    # remove water portions of CRAs
     cras = gpd.read_file(cras_path)
     if 'WATER' in cras.columns:
         cras_land = cras[cras['WATER'] == 0].drop(columns=['WATER']).copy()
     else:
         cras_land = cras.copy()
 
+    # compute area fields if necessary
     if 'AREA_ACRES' not in cras_land.columns or 'AREA_SQMI' not in cras_land.columns:
         tmp = cras_land.to_crs(epsg=26910)
         cras_land['AREA_SQMI'] = tmp.geometry.area.apply(lambda x: x / 2_589_988.110336)
         cras_land['AREA_ACRES'] = tmp.geometry.area.apply(lambda x: x / 4046.8564224)
 
+    # Merge CRA polygons and area with data already aggregated form census data
     data = cras_land.merge(data, how='left', on='CRA_NO')
 
+    # Calculate raw and relative ECA area overlap with each CRA
     if liquefaction_areas_path and os.path.exists(liquefaction_areas_path):
         data = _find_eca_cra_overlaps(data, gpd.read_file(liquefaction_areas_path), 'liquefaction')
     else:
@@ -278,6 +348,10 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
         data['SLIDE_SQ_MILES'] = 0.0
         data['SLIDE_RELATIVE'] = 0.0
 
+    # consolidate and merge in Unreinforced Masonry Data
+    # (URM counts and risk classification)
+    # Also create a risk index from URM data, which already includes information about ECAs, so including them explicitly
+    # turns out to be unecessary
     if urm_path and os.path.exists(urm_path):
         urms = gpd.read_file(urm_path).to_crs(data.crs)
         urms_sjoined = gpd.sjoin(urms, data[['CRA_NO', 'geometry']], how='left', predicate='within')
@@ -316,6 +390,8 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
         data['risk_score'] = 0.0
         data['urm_retrofit_share'] = np.nan
 
+    # calculate Permit count and Retrofit permit count by CRA, find relative retrofits as a share of total permits,
+    # and find retrofit intensity as retrofits / 10K population in each CRA
     if permits_path and os.path.exists(permits_path):
         permits = clean_permits_data(permits_path, permits_file_fmt, liquefaction_areas_path=liquefaction_areas_path,
                                      slide_areas_path=slide_areas_path, cras_path=cras_path)
@@ -340,15 +416,18 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
     data['retrofit_share_permits'] = data['RETROFIT_PERMIT_COUNT'] / data['BLDG_PERMIT_COUNT'].replace({0: np.nan})
     data['retrofit_rate_per_10k'] = data['RETROFIT_PERMIT_COUNT'] / data['population'].replace({0: np.nan}) * 10000
 
+    # use this to normalize risk and mitigation indices
     def minmax(s):
         s = s.astype(float)
         if s.max() == s.min():
             return s * 0.0
         return (s - s.min()) / (s.max() - s.min())
 
+    # risk index from risk score, mitigation index from URM and permit retrofits
     data['risk_index'] = minmax(data['risk_score'].fillna(0))
     data['mitigation_index'] = minmax((data['retrofit_rate_per_10k'].fillna(0) + data['urm_retrofit_share'].fillna(0)))
 
+    # ensure only one version of CRA name
     if 'GEN_ALIAS' not in data.columns:
         if 'GEN_ALIAS_y' in data.columns and 'GEN_ALIAS_x' in data.columns:
             data['GEN_ALIAS'] = data['GEN_ALIAS_y'].fillna(data['GEN_ALIAS_x'])
@@ -360,6 +439,7 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
             data['GEN_ALIAS'] = data['GEN_ALIAS_x']
             data = data.drop(columns=['GEN_ALIAS_x'])
 
+    # add geometry back in for GeoDataFrame if necessary
     try:
         if 'geometry' not in data.columns and data.geometry.name != 'geometry':
             data = data.set_geometry(data.geometry)
@@ -370,26 +450,142 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
 
 
 def _find_eca_cra_overlaps(cras, ecas, prefix = 'eca_overlap'):
+    '''
+    Docstring for _find_eca_cra_overlaps
+    
+    Parameters
+        cras: Clean data defining CRA polygons
+        ecas: Clean data defining ECA polygons (likely either potential slide areas or liquefaction prone areas)
+        prefix: String to prepend to the new column name
+    
+    Returns
+        A copy of the cras data, with a three new columns appended named [prefix+'_ACRES', prefix+'_SQ_MILES', prefix+'_RELATIVE']
+        representing the total overlap between a given CRA and all ECA polygons given.
+    '''
+
     if not prefix:
         raise ValueError('Prefix cannot be empty')
     if prefix.upper() == 'AREA':
         raise ValueError('Prefix cannot be "AREA", must choose a name not in CRA dataset already.')
     original_crs = cras.crs
-    intersected_cras = gpd.overlay(cras.to_crs(epsg=26910), ecas.to_crs(epsg=26910), how='intersection')
-    intersected_cras['overlap_sq_meters'] = intersected_cras.geometry.area
-    intersected_cras = intersected_cras.groupby(['CRA_NO'])['overlap_sq_meters'].sum().reset_index()
-    intersected_cras[(prefix + '_acres').upper()] = intersected_cras['overlap_sq_meters'].apply(lambda x: x / 4046.8564224)
-    intersected_cras[(prefix + '_sq_miles').upper()] = intersected_cras['overlap_sq_meters'].apply(lambda x: x / 2_589_988.110336)
-    intersected_cras.drop(columns=['overlap_sq_meters'], inplace=True)
-    intersected_cras = cras.merge(intersected_cras, how='left', on='CRA_NO')
-    intersected_cras[(prefix + '_relative').upper()] = intersected_cras[(prefix + '_acres').upper()] / intersected_cras['AREA_ACRES']
-    return intersected_cras.to_crs(original_crs)
+
+    # Project both inputs to a projected CRS suitable for area (UTM / state plane)
+    cras_proj = cras.to_crs(epsg=26910).copy()
+    ecas_proj = ecas.to_crs(epsg=26910).copy()
+
+    # Fix invalid geometries where possible (buffer(0) is a common trick)
+    try:
+        cras_proj['geometry'] = cras_proj.geometry.buffer(0)
+    except Exception:
+        pass
+    try:
+        ecas_proj['geometry'] = ecas_proj.geometry.buffer(0)
+    except Exception:
+        pass
+
+    # Attempt overlay; if overlay fails or returns empty, return CRAs with zero overlap columns
+    try:
+        intersected = gpd.overlay(cras_proj, ecas_proj, how='intersection')
+    except Exception:
+        intersected = gpd.GeoDataFrame(columns=list(cras_proj.columns) + ['overlap_sq_meters'], geometry=[])
+
+    if intersected.empty:
+        # Ensure the CRA frame has the expected output columns (uppercase names used elsewhere)
+        out = cras.copy()
+        out[(prefix + '_ACRES').upper()] = 0.0
+        out[(prefix + '_SQ_MILES').upper()] = 0.0
+        out[(prefix + '_RELATIVE').upper()] = 0.0
+        # Keep original CRS
+        try:
+            return out.to_crs(original_crs)
+        except Exception:
+            return out
+
+    # Compute intersection areas (in square meters because CRS is projected)
+    intersected['overlap_sq_meters'] = intersected.geometry.area
+    summed = intersected.groupby('CRA_NO', as_index=False)['overlap_sq_meters'].sum()
+    acres_col = (prefix + '_acres').upper()
+    sqmi_col = (prefix + '_sq_miles').upper()
+    summed[acres_col] = summed['overlap_sq_meters'] / 4046.8564224
+    summed[sqmi_col] = summed['overlap_sq_meters'] / 2_589_988.110336
+    summed = summed.drop(columns=['overlap_sq_meters'])
+
+    # Merge computed overlaps back onto the original CRA frame and compute relative share
+    merged = cras.merge(summed, how='left', on='CRA_NO')
+    # Fill missing values with zeros for numeric overlap fields
+    merged[acres_col] = merged.get(acres_col, 0.0).fillna(0.0)
+    merged[sqmi_col] = merged.get(sqmi_col, 0.0).fillna(0.0)
+
+    rel_col = (prefix + '_relative').upper()
+    # Avoid divide-by-zero: if AREA_ACRES is missing or zero, treat relative as 0
+    merged[rel_col] = 0.0
+    if 'AREA_ACRES' in merged.columns:
+        with np.errstate(invalid='ignore', divide='ignore'):
+            merged[rel_col] = (merged[acres_col] / merged['AREA_ACRES']).fillna(0.0)
+
+    # If the source CRA layer contains multiple parts with the same CRA_NO
+    # (multi-polygons or split geometries), the merge above can produce
+    # multiple rows per CRA_NO. In most following analyses we want one
+    # CRA-level row. Drop duplicate CRA_NO rows, keeping the first geometry
+    # (which will preserve the computed overlap columns added above).
+    try:
+        merged = merged.sort_values('CRA_NO').drop_duplicates(subset='CRA_NO', keep='first')
+    except Exception:
+        pass
+
+    try:
+        return merged.to_crs(original_crs)
+    except Exception:
+        return merged
 
 
 def _add_cra_permit_counts(cras, permits):
-    permits_by_cra = permits.groupby(['CRA_NO']).size().reset_index(name='BLDG_PERMIT_COUNT')
-    retrofits_by_cra = permits[permits.topic == 'retrofit'].groupby(['CRA_NO']).size().reset_index(name='RETROFIT_PERMIT_COUNT')
+    '''
+    Append CRA level statistics related to Building Permits to the cras data set. Added fields include the count of Building permits by CRA ('BLDG_PERMIT_COUNT'),
+    count of retrofit permits ('RETROFIT_PERMIT_COUNT'), mean estimated project cost ('AVG_EST_PROJECT_COST'),
+    and mean prokect completion time in days for completed projects ('AVG_COMPLETION_TIME_DAYS')
+    
+    Parameters
+        cras: Clean CRA GeoDataFrame
+        permits: Clean Building Permits DataFrame
 
-    new_cras = cras.merge(permits_by_cra, how='left', on='CRA_NO').merge(retrofits_by_cra, how='left', on='CRA_NO')
-    new_cras.loc[:, ['BLDG_PERMIT_COUNT', 'RETROFIT_PERMIT_COUNT']] = new_cras[['BLDG_PERMIT_COUNT', 'RETROFIT_PERMIT_COUNT']].fillna(0).apply(lambda s: s.astype(int))
+    returns:
+        a copy of cras with the new fields appended.
+    '''
+    # Drop permits with no CRA association (they won't merge onto cras)
+    permits_with_cra = permits.dropna(subset=['CRA_NO']).copy()
+
+    # Aggregate counts and averages per CRA
+    if 'PermitNum' in permits_with_cra.columns:
+        count_agg = permits_with_cra.groupby('CRA_NO', as_index=False).agg(
+            BLDG_PERMIT_COUNT=('PermitNum', 'count'),
+            AVG_EST_PROJECT_COST=('EstProjectCost', 'mean'),
+            AVG_COMPLETION_TIME_DAYS=('CompletionTime', 'mean')
+        )
+    else:
+        # fallback to size if PermitNum missing
+        count_agg = permits_with_cra.groupby('CRA_NO', as_index=False).agg(
+            BLDG_PERMIT_COUNT=('CRA_NO', 'size'),
+            AVG_EST_PROJECT_COST=('EstProjectCost', 'mean'),
+            AVG_COMPLETION_TIME_DAYS=('CompletionTime', 'mean')
+        )
+
+    retrofits_by_cra = (
+        permits_with_cra[permits_with_cra.topic == 'retrofit']
+        .groupby('CRA_NO', as_index=False)
+        .agg(RETROFIT_PERMIT_COUNT=('topic', 'size'))
+    )
+
+    new_cras = cras.merge(count_agg, how='left', on='CRA_NO').merge(retrofits_by_cra, how='left', on='CRA_NO')
+
+    # Fill counts with zeros; keep averages as NaN when not available
+    new_cras['BLDG_PERMIT_COUNT'] = new_cras['BLDG_PERMIT_COUNT'].fillna(0).astype(int)
+    new_cras['RETROFIT_PERMIT_COUNT'] = new_cras['RETROFIT_PERMIT_COUNT'].fillna(0).astype(int)
+
+    # Ensure average columns exist (float) even if there were no permits
+    if 'AVG_EST_PROJECT_COST' not in new_cras.columns:
+        new_cras['AVG_EST_PROJECT_COST'] = np.nan
+    if 'AVG_COMPLETION_TIME_DAYS' not in new_cras.columns:
+        new_cras['AVG_COMPLETION_TIME_DAYS'] = np.nan
+
     return new_cras
