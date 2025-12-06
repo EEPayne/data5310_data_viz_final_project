@@ -205,6 +205,25 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
     data['risk_index'] = minmax(data['risk_score'].fillna(0))
     data['mitigation_index'] = minmax((data['retrofit_rate_per_10k'].fillna(0) + data['urm_retrofit_share'].fillna(0)))
 
+    # Normalize common column names (merge operations can create GEN_ALIAS_x / GEN_ALIAS_y)
+    if 'GEN_ALIAS' not in data.columns:
+        if 'GEN_ALIAS_y' in data.columns and 'GEN_ALIAS_x' in data.columns:
+            data['GEN_ALIAS'] = data['GEN_ALIAS_y'].fillna(data['GEN_ALIAS_x'])
+            data = data.drop(columns=['GEN_ALIAS_x', 'GEN_ALIAS_y'])
+        elif 'GEN_ALIAS_y' in data.columns:
+            data['GEN_ALIAS'] = data['GEN_ALIAS_y']
+            data = data.drop(columns=['GEN_ALIAS_y'])
+        elif 'GEN_ALIAS_x' in data.columns:
+            data['GEN_ALIAS'] = data['GEN_ALIAS_x']
+            data = data.drop(columns=['GEN_ALIAS_x'])
+
+    # Ensure geometry column is present and named 'geometry'
+    if 'geometry' not in data.columns and data.geometry.name != 'geometry':
+        try:
+            data = data.set_geometry(data.geometry)
+        except Exception:
+            pass
+
     return data
 
 def _find_eca_cra_overlaps(cras, ecas, prefix = 'eca_overlap'):
