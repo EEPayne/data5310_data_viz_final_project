@@ -186,7 +186,7 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     data.loc[:, ["month"]] = data["AppliedDate"].dt.month
     data.loc[:, ["year_month"]] = data["AppliedDate"].dt.to_period("M").dt.to_timestamp()
 
-    return data
+    return data.to_crs(4326)
 
 
 def _add_eca_status_columns(point_data: pd.DataFrame, liquefaction_areas: gpd.GeoDataFrame, slide_areas: gpd.GeoDataFrame, cras: gpd.GeoDataFrame):
@@ -281,7 +281,7 @@ def clean_urm_data(urm_data_path, cras_path):
     urms['LONGITUDE'] = urms.geometry.x
     urms['X'] = urms.geometry.x
     urms['Y'] = urms.geometry.y
-    return urms
+    return urms.to_crs(4326)
 
 
 
@@ -467,8 +467,8 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
             data = data.set_geometry(data.geometry)
     except Exception:
         pass
-
-    return data
+    print(data.geometry)
+    return data.to_crs(4326)
 
 
 def _find_eca_cra_overlaps(cras, ecas, prefix = 'eca_overlap'):
