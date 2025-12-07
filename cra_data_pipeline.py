@@ -186,6 +186,10 @@ def clean_permits_data(data_path, data_file_fmt = 'csv', keep_columns = None, sa
     data.loc[:, ["month"]] = data["AppliedDate"].dt.month
     data.loc[:, ["year_month"]] = data["AppliedDate"].dt.to_period("M").dt.to_timestamp()
 
+    # make into a GeoDataFrame
+    data['geometry'] = gpd.points_from_xy(data['X'], data['Y'], crs="EPSG:4326")
+    data = gpd.GeoDataFrame(data, geometry='geometry', crs="EPSG:4326")
+
     return data.to_crs(4326)
 
 
@@ -467,7 +471,7 @@ def compile_cra_stats(seattle_census_data_path=os.path.join('data', 'OFM_SAEP_BL
             data = data.set_geometry(data.geometry)
     except Exception:
         pass
-    print(data.geometry)
+    
     return data.to_crs(4326)
 
 
